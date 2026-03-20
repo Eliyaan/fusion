@@ -49,6 +49,8 @@ float fusion_dot_product(fusion_Coords a, fusion_Coords b)
 	return a.x * b.x + a.y * b.y;
 }
 
+/* 0 if the segments do not intersect */
+/* 1 if the segments intersect */
 int fusion_segments_intersect(fusion_Coords first_a, fusion_Coords first_b, fusion_Coords second_a, fusion_Coords second_b)
 {
 	// Find if a segment's line gets intersected by a segment:
@@ -85,10 +87,10 @@ int fusion_segments_intersect(fusion_Coords first_a, fusion_Coords first_b, fusi
 	is_inter_first__f = fusion_dot_product(first_orth, f_a_to_sec_a) * fusion_dot_product(first_orth, f_a_to_sec_b);
 	is_inter_second__f = fusion_dot_product(second_orth, sec_a_to_f_a) * fusion_dot_product(second_orth, sec_a_to_f_b);
 	
-	return is_inter_first__f <= 0.0 && is_inter_second__f <= 0.0;
+	return is_inter_first__f < 0.0 && is_inter_second__f < 0.0;
 }
 
-fusion_IntersectionArray fusion_find_intersections(fusion_Shape shape_a, fusion_Shape shape_b)
+fusion_IntersectionArray fusion_intersections_find(fusion_Shape shape_a, fusion_Shape shape_b)
 {
 	/* For each segment: */
 	/* Find if the shape_a segment's line gets intersected by the shape_b segment and then the other way */
@@ -99,9 +101,9 @@ fusion_IntersectionArray fusion_find_intersections(fusion_Shape shape_a, fusion_
 	inters.length = 0;
 	inters_cap = 2 * 5;
 
-	for (i = 0; i < shape_a.coo_array.length; i++) // TODO handle the last segment : n-1 -> 0
+	for (i = 0; i < shape_a.coo_array.length; i++) 
 	{
-		for (j = 0; j < shape_b.coo_array.length; j++) // TODO same
+		for (j = 0; j < shape_b.coo_array.length; j++)
 		{
 			is_intersecting = fusion_segments_intersect(shape_a.coo_array.coos[i], shape_a.coo_array.coos[(i + 1) % shape_a.coo_array.length],
 				shape_b.coo_array.coos[j], shape_b.coo_array.coos[(j + 1) % shape_b.coo_array.length]);
@@ -122,40 +124,72 @@ fusion_IntersectionArray fusion_find_intersections(fusion_Shape shape_a, fusion_
 }
 
 
+/* Prerequisite: The two shapes have 0 intersections */
 /* 0 : shape_a outside shape_b */
 /* 1 : shape_a inside shape_b  */
-int fusion_is_inside_outside(fusion_Shape shape_a, fusion_Shape shape_b)
+int fusion_shape_is_a_inside_b(fusion_Shape shape_a, fusion_Shape shape_b)
 {
-	/* The two shapes have 0 intersections */
-	/* First segment: first segment of shape1
-	/* Find closest intersecting segment (shape2) (after the first segment according to the normal of the first segment) of the normal of the first segment */
-	/* If no closest intersecting segment (shape2) after the first segment: do the check with shape2, if same: the shapes are not touching */
-	/* If the two normals go in the same direction : the first shape is inside the second one */
-	/* If the two normals go in the opposite direction : the first shape is outside the second one */
-	unsigned int i_intersect_sec; /* index of the intersecting segment in the other shape */
-	fo_Coords normal_first; /* normal of the main segment (first segment above) */
-	fo_Coords first_a_to_sec_a; /* Vector from first vert of the first segment to first vert of second vector (maybe closest intersecting segment) */
-	float is_after; /* result of dot_product(normal_first, first_a_to_sec_a) to see if the second segment is after the first segment */
-	int i;
+	/* Fire a ray from a point of shape_a and count the number of intersections with shape_b: odd -> inside, even -> outside */
+	unsigned int count_intersect; /* number of intersections */
+	fusion_Coords shape_a_vec; /* Vector ray fired from shape_a */
+	fusion_Coords shape_a_point; /* origin of the vector, a point from shape a */
+	fusion_Coords shape_b_f_point, shape_b_s_point; /* two connected points from shape_b */
+	fusion_Coords a_f_vec, a_s_vec; /* Vectors from shape_a_point to shape_b_(f/s)_point */
+	fusion_Coords shape_b_normal; 
+	float a_f_a_dot, a_s_a_dot; /* results of the dot products */
+	unsigned int are_intersecting;
+	unsigned int shape_b_length;
+	unsigned int i;
+	
+	shape_b_length = shape_b.coo_array.length;
 
 	if (shape_a.coo_array.length <= 1)
 	{
 		return 0;
 	}
-	normal_first.x = -(shape_a.coo_array.coos[1].y - shape_a.coo_array.coos[0].y); /* -y */
-	normal_first.y = shape_a.coo_array.coos[1].x - shape_a.coo_array.coos[0].x;
+	shape_a_point.x = shape_a.coo_array.coos[0].x;
+	shape_a_point.x = shape_a.coo_array.coos[0].y;
+	shape_a_vec.x = shape_a.coo_array.coos[1].x - shape_a_point.x;
+	shape_a_vec.y = shape_a.coo_array.coos[1].y - shape_a_point.y;
 	
-	/* Find closest intersecting segment */
+	shape_b_s_point.x = shape_b.coo_array.coos[shape_b_length - 1].x; /* handles : N-1 -> 0 the last link */
+	shape_b_s_point.y = shape_b.coo_array.coos[shape_b_length - 1].y;
+	/* Find all intersecting segments */
 	for (i = 0; i < shape_b.coo_array.length; i++)
 	{
-		/* Check if second segment is after first*/
-		first_a_to_sec_a.x = shape_b.co_array.coos[i].x - shape_a.coo_array.coos[0].x;
-		first_a_to_sec_a.y = shape_b.co_array.coos[i].y - shape_a.coo_array.coos[0].y;
-		is_after = fusion_dot_product(normal_first, first_a_to_sec_a); // This is not enough  if the start of sec is behind first : check with sec_b : one or the other
-		if (is_after > 0.0)
+		shape_b_f_point.x = shape_b_s_point.x;
+		shape_b_f_point.y = shape_b_s_point.y;
+		shape_b_s_point.x = shape_b.coo_array.coos[i].x;
+		shape_b_s_point.y = shape_b.coo_array.coos[i].y;
+
+		a_f_vec.x = shape_b_f_point.x - shape_a_point.x;
+		a_f_vec.y = shape_b_f_point.y - shape_a_point.y;
+		a_s_vec.x = shape_b_s_point.x - shape_a_point.x;
+		a_s_vec.y = shape_b_s_point.y - shape_a_point.y;
+	
+		a_f_a_dot = fusion_dot_product(a_f_vec, shape_a_vec);
+		a_s_a_dot = fusion_dot_product(a_s_vec, shape_a_vec);
+		are_intersecting = a_f_a_dot * a_s_a_dot < 0.0;
+
+		if (are_intersecting)
 		{
-			/* Find if it is closer than the current closest */
-		// Did not find a way to do this without sqrt of the lengths
+			/* Check if the dot product of the vector that has a positive dot product with shape_a_vec and */
+			/* the normal of the vector that has a negative dot product with shape_a_vec to see if shape_b */
+			/* segment is above or below the origin of the shape_a vector */
+			/* dot product > 0.0 ? above : below */
+			if (a_f_a_dot < 0.0 )
+			{
+				shape_b_normal.x = -a_f_vec.y;
+				shape_b_normal.y = a_f_vec.x;
+				count_intersect = count_intersect + (fusion_dot_product(a_s_vec, shape_b_normal) > 0.0);
+			} 
+			else /* a_s_a_dot < 0.0 */
+			{
+				shape_b_normal.x = -a_s_vec.y;
+				shape_b_normal.y = a_s_vec.x;
+				count_intersect = count_intersect + (fusion_dot_product(a_f_vec, shape_b_normal) > 0.0);
+			}
 		}
 	}
+	return count_intersect & 1;
 }
