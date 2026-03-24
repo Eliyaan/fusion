@@ -41,11 +41,6 @@ typedef struct {
 	unsigned int length;
 } fusion__IntersectionArray;
 
-float fusion__dot_product(fusion__Coords a, fusion__Coords b)
-{
-	return a.x * b.x + a.y * b.y;
-}
-
 /* 0 if the segments do not intersect */
 /* 1 if the segments intersect */
 int fusion__segments_intersect(fusion__Coords first_a, fusion__Coords first_b, fusion__Coords second_a, fusion__Coords second_b)
@@ -81,8 +76,9 @@ int fusion__segments_intersect(fusion__Coords first_a, fusion__Coords first_b, f
 	sec_a_to_f_b.x = first_b.x - second_a.x;
 	sec_a_to_f_b.y = first_b.y - second_a.y;
 
-	is_inter_first__f = fusion__dot_product(first_orth, f_a_to_sec_a) * fusion__dot_product(first_orth, f_a_to_sec_b);
-	is_inter_second__f = fusion__dot_product(second_orth, sec_a_to_f_a) * fusion__dot_product(second_orth, sec_a_to_f_b);
+	/* dot_product * dot_product -> are the two dot products of different signs -> if yes -> intersection */
+	is_inter_first__f = (first_orth.a * f_a_to_sec_a.a + first_orth.b * f_a_to_sec_a.b) * (first_orth.a * f_a_to_sec_b.a + first_orth.b * f_a_to_sec_b.b);
+	is_inter_second__f = (second_orth.a * sec_a_to_f_a.a + second_orth.b * sec_a_to_f_a.b) * (second_orth.a * sec_a_to_f_b.a + second_orth.b * sec_a_to_f_b.b);
 	
 	return is_inter_first__f < 0.0 && is_inter_second__f < 0.0;
 }
@@ -98,12 +94,12 @@ fusion__IntersectionArray fusion__intersections_find(fusion__Shape shape_a, fusi
 	inters.length = 0;
 	inters_cap = 2 * 5;
 
-	for (i = 0; i < shape_a.coo_array.length; i++) 
+	for (i = 0; i < shape_a.coo_array.length - 1; i++) 
 	{
-		for (j = 0; j < shape_b.coo_array.length; j++)
+		for (j = 0; j < shape_b.coo_array.length - 1; j++)
 		{
-			is_intersecting = fusion__segments_intersect(shape_a.coo_array.coos[i], shape_a.coo_array.coos[(i + 1) % shape_a.coo_array.length],
-				shape_b.coo_array.coos[j], shape_b.coo_array.coos[(j + 1) % shape_b.coo_array.length]);
+			is_intersecting = fusion__segments_intersect(shape_a.coo_array.coos[i], shape_a.coo_array.coos[i + 1],
+				shape_b.coo_array.coos[j], shape_b.coo_array.coos[j + 1]);
 			if (is_intersecting)
 			{
 				if (inters.length == inters_cap)
@@ -116,6 +112,35 @@ fusion__IntersectionArray fusion__intersections_find(fusion__Shape shape_a, fusi
 				inters.length = inters.length + 1;
 			}
 		}
+		/* j = shape_b.coo_array.length - 1 */
+		is_intersecting = fusion__segments_intersect(shape_a.coo_array.coos[i], shape_a.coo_array.coos[i + 1],
+			shape_b.coo_array.coos[j], shape_b.coo_array.coos[0]);
+		if (is_intersecting)
+		{
+			if (inters.length == inters_cap)
+			{
+				inters.segments = realloc(inters.segments, inters_cap * 2);
+				inters_cap = inters_cap * 2;
+			}
+			inters.segments[inters.length].first = i;
+			inters.segments[inters.length].second = j;
+			inters.length = inters.length + 1;
+		}
+	}
+	/* i = shape_a.coo_array.length - 1 */
+	/* j = shape_b.coo_array.length - 1 */
+	is_intersecting = fusion__segments_intersect(shape_a.coo_array.coos[i], shape_a.coo_array.coos[0],
+		shape_b.coo_array.coos[j], shape_b.coo_array.coos[0]);
+	if (is_intersecting)
+	{
+		if (inters.length == inters_cap)
+		{
+			inters.segments = realloc(inters.segments, inters_cap * 2);
+			inters_cap = inters_cap * 2;
+		}
+		inters.segments[inters.length].first = i;
+		inters.segments[inters.length].second = j;
+		inters.length = inters.length + 1;
 	}
 	return inters;
 }
@@ -134,6 +159,7 @@ int fusion__shape_is_a_inside_b(fusion__Shape shape_a, fusion__Shape shape_b)
 	fusion__Coords a_f_vec, a_s_vec; /* Vectors from shape_a_point to shape_b_(f/s)_point */
 	fusion__Coords shape_b_normal; 
 	float a_f_a_dot, a_s_a_dot; /* results of the dot products */
+	float is_above;
 	unsigned int are_intersecting;
 	unsigned int shape_b_length;
 	unsigned int i;
@@ -151,7 +177,7 @@ int fusion__shape_is_a_inside_b(fusion__Shape shape_a, fusion__Shape shape_b)
 	
 	shape_b_s_point.x = shape_b.coo_array.coos[shape_b_length - 1].x; /* handles : N-1 -> 0 the last link */
 	shape_b_s_point.y = shape_b.coo_array.coos[shape_b_length - 1].y;
-	/* Find all intersecting segments */
+	/* Find all intersecting segments with shape_a_vec */
 	for (i = 0; i < shape_b.coo_array.length; i++)
 	{
 		shape_b_f_point.x = shape_b_s_point.x;
@@ -164,8 +190,8 @@ int fusion__shape_is_a_inside_b(fusion__Shape shape_a, fusion__Shape shape_b)
 		a_s_vec.x = shape_b_s_point.x - shape_a_point.x;
 		a_s_vec.y = shape_b_s_point.y - shape_a_point.y;
 	
-		a_f_a_dot = fusion__dot_product(a_f_vec, shape_a_vec);
-		a_s_a_dot = fusion__dot_product(a_s_vec, shape_a_vec);
+		a_f_a_dot = (a_f_vec.a * shape_a_vec.a + a_f_vec.b * shape_a_vec.b);
+		a_s_a_dot = (a_s_vec.a * shape_a_vec.a + a_s_vec.b * shape_a_vec.b);
 		are_intersecting = a_f_a_dot * a_s_a_dot < 0.0;
 
 		if (are_intersecting)
@@ -178,13 +204,15 @@ int fusion__shape_is_a_inside_b(fusion__Shape shape_a, fusion__Shape shape_b)
 			{
 				shape_b_normal.x = -a_f_vec.y;
 				shape_b_normal.y = a_f_vec.x;
-				count_intersect = count_intersect + (fusion__dot_product(a_s_vec, shape_b_normal) > 0.0);
+				is_above = a_s_vec.a * shape_b_normal.a + a_s_vec.b * shape_b_normal.b;
+				count_intersect = count_intersect + (is_above > 0.0);
 			} 
 			else /* a_s_a_dot < 0.0 */
 			{
 				shape_b_normal.x = -a_s_vec.y;
 				shape_b_normal.y = a_s_vec.x;
-				count_intersect = count_intersect + (fusion__dot_product(a_f_vec, shape_b_normal) > 0.0);
+				is_above = a_f_vec.a * shape_b_normal.a + a_f_vec.b * shape_b_normal.b;
+				count_intersect = count_intersect + (is_above > 0.0);
 			}
 		}
 	}
@@ -234,7 +262,7 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 		j = inters.length - 2 - i; /* even: shape_b, odd: shape_a */
 		if (j & 1) /* on shape_a */
 		{
-			for (k = inters.segments[i].first; k <= inters.segments[i-1] - 1.first; k--)
+			for (k = inters.segments[i].first; k <= inters.segments[i-1].first - 1; k--)
 			{
 				new_shape.coo_array.coos[new_shape.coo_array.length] = shape_a.coo_array.coos[k];
 				new_shape.coo_array.length = new_shape.coo_array.length + 1;
@@ -243,11 +271,19 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 		else /* on shape_b */
 		{
 			for (	k = inters.segments[i].second + 1;
-				k % shape_b.coo_array.length != 1 + inters.segments[i-1].second; /* stops after inters.segments[i-1].second */
-				k = (k + 1) % shape_b.coo_array.length	)
+				k != 1 + inters.segments[i-1].second; /* stops after inters.segments[i-1].second */
+				)
+				/* k % shape_b.coo_array.length != 1 + inters.segments[i-1].second;  */
+				/* k = (k + 1) % shape_b.coo_array.length	) */
 			{
 				new_shape.coo_array.coos[new_shape.coo_array.length] = shape_b.coo_array.coos[k];
 				new_shape.coo_array.length = new_shape.coo_array.length + 1;
+
+				k = k + 1;
+				if (k == shape_b.coo_array.length)
+				{
+					k = 0;
+				}
 			}
 		}
 			
@@ -257,22 +293,38 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 	// TODO Add the new intersection vertex
 
 	for (	i = inters.segments[0].second; 
-		i % shape_b.coo_array.length != 1 + inters.segments[inters.length - 1].second;
-		i = (i+1) % shape_b.coo_array.length	)
+		i != 1 + inters.segments[inters.length - 1].second;
+		)
+		/* i % shape_b.coo_array.length != 1 + inters.segments[inters.length - 1].second; */
+		/* i = (i+1) % shape_b.coo_array.length	) */
 	{
 		new_shape.coo_array.coos[new_shape.coo_array.length] = shape_b.coo_array.coos[i];
 		new_shape.coo_array.length = new_shape.coo_array.length + 1;
+
+		i = i + 1;
+		if (i == shape_b.coo_array.length)
+		{
+			i = 0;
+		}
 	}
 
 	// TODO Add the new intersection vertex
 	
 	/* close the shape by iterating on the shape_a from N to 1 */
 	for (	i = inters.segments[inters.length - 1].first + 1;
-		i % shape_a.coo_array.length != inters.segments[0].first; 
-		i = (i+1) % shape_a.coo_array.length	)
+		i != inters.segments[0].first; 
+		) 
+		/* i % shape_a.coo_array.length != inters.segments[0].first; */
+		/* i = (i+1) % shape_a.coo_array.length	) */
 	{
 		new_shape.coo_array.coos[new_shape.coo_array.length] = shape_a.coo_array.coos[i];
 		new_shape.coo_array.length = new_shape.coo_array.length + 1;
+		
+		i = i + 1;
+		if (i == shape_a.coo_array.length)
+		{
+			i = 0;
+		}
 	}
 
 	// TODO shrink new_array.coo_array.coos to new_shape.coo_array.length
