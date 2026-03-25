@@ -10,6 +10,7 @@ typedef struct {
 	unsigned int length;
 } fusion__CoordsArray;
 
+// A shape should always have at least 3 verticies
 // Traversal: clockwise
 typedef struct {
 	fusion__CoordsArray coo_array;
@@ -43,7 +44,7 @@ typedef struct {
 
 /* 0 if the segments do not intersect */
 /* 1 if the segments intersect */
-int fusion__segments_intersect(fusion__Coords first_a, fusion__Coords first_b, fusion__Coords second_a, fusion__Coords second_b)
+unsigned int fusion__segments_intersect(fusion__Coords first_a, fusion__Coords first_b, fusion__Coords second_a, fusion__Coords second_b)
 {
 	// Find if a segment's line gets intersected by a segment:
 	// Dot product of the orthogonal (to first segment) with vector (point of first segment to 1st point of other segment)
@@ -166,9 +167,13 @@ int fusion__shape_is_a_inside_b(fusion__Shape shape_a, fusion__Shape shape_b)
 	
 	shape_b_length = shape_b.coo_array.length;
 
-	if (shape_a.coo_array.length <= 1)
+	if (shape_a.coo_array.length < 3)
 	{
-		return 0;
+		abort(__FILE__, __LINE__, "Shape A has less than 3 vertices");
+	}
+	if (shape_b.coo_array.length < 3)
+	{
+		abort(__FILE__, __LINE__, "Shape B has less than 3 vertices");
 	}
 	shape_a_point.x = shape_a.coo_array.coos[0].x;
 	shape_a_point.x = shape_a.coo_array.coos[0].y;
@@ -222,7 +227,10 @@ int fusion__shape_is_a_inside_b(fusion__Shape shape_a, fusion__Shape shape_b)
 fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, fusion__IntersectionArray inters)
 {
 	fusion__Shape new_shape;
-	unsigned int new_shape_cap, i, j, k;
+	fusion_Coords coos_a, coos_b, coos_c, coos_d, coos_e;
+	fusion__IntersectionSegments cur_inters;
+	unsigned int are_intersecting;
+	unsigned int new_shape_cap, i, j, k, l;
 	
 	if (inters.length == 0)
 	{
@@ -234,12 +242,94 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 		{
 			return shape_a;
 		} else {
-			// TODO find a place to link the two shape without intersecting geometry
+			for (i = 0; i < shape_a.coo_array.length; i++)
+			{
+				coos_a = shape_a.coo_array.coos[i]
+				for (j = 0; j < shape_b.coo_array.length; j++)
+				{
+					l = shape_a.coo_array.length - 1; /* previous vertex */
+					coos_b = shape_b.coo_array.coos[j];
+					for (k = 0; k < shape_a.coo_array.length; k++)
+					{
+						if (l == i || k == i)
+						{
+							l = k;
+							continue;
+						}
+						are_intersecting = fusion__segments_intersect(coos_a, coos_b,
+							shape_a.coo_array.coos[l], shape_a.coo_array.coos[k])
+						if (are_intersecting)
+						{
+							break;
+						}
+						l = k;
+					}
+					if (are_intersecting)
+					{
+						continue;
+					}
+					l = shape_b.coo_array.length - 1; /* previous vertex */
+					for (k = 0; k < shape_b.coo_array.length; k++)
+					{
+						if (l == j || k == j)
+						{
+							l = k;
+							continue;
+						}
+						are_intersecting = fusion__segments_intersect(coos_a, coos_b,
+							shape_b.coo_array.coos[l], shape_b.coo_array.coos[k])
+						if (are_intersecting)
+						{
+							break;
+						}
+						l = k;
+					}
+					if (!are_intersecting)
+					{
+						break;
+					}
+				}
+				if (!are_intersecting)
+				{
+					break;
+				}
+			}
+			if (!are_intersecting)
+			{
+				new_shape.coo_array.coos = malloc(shape_a.coo_array.length + shape_b.coo_array.length + 2); // TODO arena
+				new_shape.coo_array.lenght = 0;
+				new_shape.positive = 1;
+				for (k = 0; k <= i; k++)
+				{
+					new_shape.coo_array.coos[new_shape.coo_array.length] = shape_a.coo_array.coos[k];
+					new_shape.coo_array.length = new_shape.coo_array.length + 1;
+				}
+				for (k = j; k < shape_b.coo_array.length; k++)
+				{
+					new_shape.coo_array.coos[new_shape.coo_array.length] = shape_b.coo_array.coos[k];
+					new_shape.coo_array.length = new_shape.coo_array.length + 1;
+				}
+				for (k = 0; k <= j; k++)
+				{
+					new_shape.coo_array.coos[new_shape.coo_array.length] = shape_b.coo_array.coos[k];
+					new_shape.coo_array.length = new_shape.coo_array.length + 1;
+				}
+				for (k = i; k < shape_a.coo_array.length; k++)
+				{
+					new_shape.coo_array.coos[new_shape.coo_array.length] = shape_a.coo_array.coos[k];
+					new_shape.coo_array.length = new_shape.coo_array.length + 1;
+				}
+				return new_shape;
+			}
+			else
+			{
+				abort(__FILE__, __LINE__, "Did not find a segment that was not intersecting with neither of the shapes");
+			}
 		}
 	}
 	
 	new_shape_cap = 2 * shape_a.coo_array.length + shape_b.coo_array.length + inters.length;
-	new_shape.coo_array.coos = malloc(new_shape_cap); /* Overallocate, shrink it down (Arena) once the length is known */
+	new_shape.coo_array.coos = malloc(new_shape_cap); /* TODO Overallocate, shrink it down (Arena) once the length is known */
 	new_shape.coo_array.length = 0;
 	new_shape.positive = 1;
 
@@ -258,11 +348,33 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 	/* Iterate backwards on the list of intersections, once on shape_b, the other time on shape_a */
 	for (i = inters.length - 2; i > 0; i--)
 	{
+		cur_inters = inters.segments[i];
 		// TODO Add the new intersection vertex
+		coos_a = shape_a.coo_array.coos[cur_inters.first - 1];
+		coos_c = shape_a.coo_array.coos[cur_inters.first];
+		coos_c.x = coos_c.x - coos_a.x; /* set A as the origin (0, 0) to simplify the expression */
+		coos_c.y = coos_c.y - coos_a.y;
+		if (cur_inters.second == shape_b.coo_array.length - 1)
+		{
+			coos_b = shape_b.coo_array.coos[0];
+		}
+		else
+		{
+			coos_b = shape_b.coo_array.coos[cur_inters.second + 1];
+		}
+		coos_b.x = coos_b.x - coos_a.x;
+		coos_b.y = coos_b.y - coos_a.y;
+		coos_d = shape_b.coo_array.coos[cur_inters.second];
+		coos_d.x = coos_d.x - coos_a.x;
+		coos_d.y = coos_d.y - coos_a.y;
+	
+		new_shape.coo_array.coos[new_shape.coo_array.length] = coos_e;
+		new_shape.coo_array.length = new_shape.coo_array.length + 1;
+
 		j = inters.length - 2 - i; /* even: shape_b, odd: shape_a */
 		if (j & 1) /* on shape_a */
 		{
-			for (k = inters.segments[i].first; k <= inters.segments[i-1].first - 1; k--)
+			for (k = cur_inters.first; k >= inters.segments[i-1].first - 1; k--)
 			{
 				new_shape.coo_array.coos[new_shape.coo_array.length] = shape_a.coo_array.coos[k];
 				new_shape.coo_array.length = new_shape.coo_array.length + 1;
@@ -270,7 +382,7 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 		}
 		else /* on shape_b */
 		{
-			for (	k = inters.segments[i].second + 1;
+			for (	k = cur_inters.second + 1;
 				k != 1 + inters.segments[i-1].second; /* stops after inters.segments[i-1].second */
 				)
 				/* k % shape_b.coo_array.length != 1 + inters.segments[i-1].second;  */
@@ -327,7 +439,7 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 		}
 	}
 
-	// TODO shrink new_array.coo_array.coos to new_shape.coo_array.length
+	// TODO shrink new_array.coo_array.coos to new_shape.coo_array.length arena_realloc
 	
 	return new_shape;
 }
