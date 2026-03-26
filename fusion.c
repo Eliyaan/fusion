@@ -228,6 +228,7 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 {
 	fusion__Shape new_shape;
 	fusion_Coords coos_a, coos_b, coos_c, coos_d, coos_e;
+	float alpha; /* intermediary result */
 	fusion__IntersectionSegments cur_inters;
 	unsigned int are_intersecting;
 	unsigned int new_shape_cap, i, j, k, l;
@@ -327,9 +328,13 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 			}
 		}
 	}
-	
+
+	/*
+	// Two intersecting shapes
+	*/
+		
 	new_shape_cap = 2 * shape_a.coo_array.length + shape_b.coo_array.length + inters.length;
-	new_shape.coo_array.coos = malloc(new_shape_cap); /* TODO Overallocate, shrink it down (Arena) once the length is known */
+	new_shape.coo_array.coos = malloc(new_shape_cap * (sizeof *new_shape.coo_array.coos)); /* TODO Overallocate, shrink it down (Arena) once the length is known */
 	new_shape.coo_array.length = 0;
 	new_shape.positive = 1;
 
@@ -349,9 +354,10 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 	for (i = inters.length - 2; i > 0; i--)
 	{
 		cur_inters = inters.segments[i];
-		// TODO Add the new intersection vertex
-		coos_a = shape_a.coo_array.coos[cur_inters.first - 1];
-		coos_c = shape_a.coo_array.coos[cur_inters.first];
+		
+		/* Add the intersection vertex */
+		coos_a = shape_a.coo_array.coos[cur_inters.first];
+		coos_c = shape_a.coo_array.coos[cur_inters.first + 1];
 		coos_c.x = coos_c.x - coos_a.x; /* set A as the origin (0, 0) to simplify the expression */
 		coos_c.y = coos_c.y - coos_a.y;
 		if (cur_inters.second == shape_b.coo_array.length - 1)
@@ -367,14 +373,18 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 		coos_d = shape_b.coo_array.coos[cur_inters.second];
 		coos_d.x = coos_d.x - coos_a.x;
 		coos_d.y = coos_d.y - coos_a.y;
-	
+		alpha = (coos_d.x * coos_b.y - coos_b.x * coos_d.y) / (coos_c.y * (coos_d.x - coos_b.x) + coos_c.x * (coos_b.y - coos_d.y))
+		coos_e.x = coos_c.x * alpha + coos_a.x;
+		coos_e.y = coos_c.y * alpha + coos_a.x;
+
 		new_shape.coo_array.coos[new_shape.coo_array.length] = coos_e;
 		new_shape.coo_array.length = new_shape.coo_array.length + 1;
+
 
 		j = inters.length - 2 - i; /* even: shape_b, odd: shape_a */
 		if (j & 1) /* on shape_a */
 		{
-			for (k = cur_inters.first; k >= inters.segments[i-1].first - 1; k--)
+			for (k = cur_inters.first; k >= inters.segments[i-1].first + 1; k--)
 			{
 				new_shape.coo_array.coos[new_shape.coo_array.length] = shape_a.coo_array.coos[k];
 				new_shape.coo_array.length = new_shape.coo_array.length + 1;
@@ -402,7 +412,36 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 	}
 
 	/* Here is on first intersection (last shape was shape_a) */
-	// TODO Add the new intersection vertex
+	if (i != 0)
+	{
+		abort(__FILE__, __LINE__, "i should be 0 when going out of the previous loop");
+	}
+	cur_inters = inters.segments[0];
+	/* Add the new intersection vertex */
+	coos_a = shape_a.coo_array.coos[cur_inters.first];
+	coos_c = shape_a.coo_array.coos[cur_inters.first + 1];
+	coos_c.x = coos_c.x - coos_a.x; /* set A as the origin (0, 0) to simplify the expression */
+	coos_c.y = coos_c.y - coos_a.y;
+	if (cur_inters.second == shape_b.coo_array.length - 1)
+	{
+		coos_b = shape_b.coo_array.coos[0];
+	}
+	else
+	{
+		coos_b = shape_b.coo_array.coos[cur_inters.second + 1];
+	}
+	coos_b.x = coos_b.x - coos_a.x;
+	coos_b.y = coos_b.y - coos_a.y;
+	coos_d = shape_b.coo_array.coos[cur_inters.second];
+	coos_d.x = coos_d.x - coos_a.x;
+	coos_d.y = coos_d.y - coos_a.y;
+	alpha = (coos_d.x * coos_b.y - coos_b.x * coos_d.y) / (coos_c.y * (coos_d.x - coos_b.x) + coos_c.x * (coos_b.y - coos_d.y))
+	coos_e.x = coos_c.x * alpha + coos_a.x;
+	coos_e.y = coos_c.y * alpha + coos_a.x;
+
+	new_shape.coo_array.coos[new_shape.coo_array.length] = coos_e;
+	new_shape.coo_array.length = new_shape.coo_array.length + 1;
+
 
 	for (	i = inters.segments[0].second; 
 		i != 1 + inters.segments[inters.length - 1].second;
@@ -420,7 +459,39 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 		}
 	}
 
-	// TODO Add the new intersection vertex
+	cur_inters = inters.segments[inters.length - 1];
+	/* Add the new intersection vertex */
+	coos_a = shape_a.coo_array.coos[cur_inters.first];
+	if (cur_inters.first == shape_a.coo_array.length - 1)
+	{
+		coos_c = shape_a.coo_array.coos[0];
+	}
+	else
+	{
+		coos_c = shape_a.coo_array.coos[cur_inters.first + 1];
+	}
+	coos_c.x = coos_c.x - coos_a.x; /* set A as the origin (0, 0) to simplify the expression */
+	coos_c.y = coos_c.y - coos_a.y;
+	if (cur_inters.second == shape_b.coo_array.length - 1)
+	{
+		coos_b = shape_b.coo_array.coos[0];
+	}
+	else
+	{
+		coos_b = shape_b.coo_array.coos[cur_inters.second + 1];
+	}
+	coos_b.x = coos_b.x - coos_a.x;
+	coos_b.y = coos_b.y - coos_a.y;
+	coos_d = shape_b.coo_array.coos[cur_inters.second];
+	coos_d.x = coos_d.x - coos_a.x;
+	coos_d.y = coos_d.y - coos_a.y;
+	alpha = (coos_d.x * coos_b.y - coos_b.x * coos_d.y) / (coos_c.y * (coos_d.x - coos_b.x) + coos_c.x * (coos_b.y - coos_d.y))
+	coos_e.x = coos_c.x * alpha + coos_a.x;
+	coos_e.y = coos_c.y * alpha + coos_a.x;
+
+	new_shape.coo_array.coos[new_shape.coo_array.length] = coos_e;
+	new_shape.coo_array.length = new_shape.coo_array.length + 1;
+
 	
 	/* close the shape by iterating on the shape_a from N to 1 */
 	for (	i = inters.segments[inters.length - 1].first + 1;
@@ -441,5 +512,144 @@ fusion__Shape fusion__shape_fill(fusion__Shape shape_a, fusion__Shape shape_b, f
 
 	// TODO shrink new_array.coo_array.coos to new_shape.coo_array.length arena_realloc
 	
+	return new_shape;
+}
+
+fusion__shape_empty(fusion__Shape shape_a, fusion__Shape shape_b, fusion__IntersectionArray inters)
+{
+	unsigned int i, j, k, l;
+	fusion__IntersectionSegments cur_inters;
+	fusion__Shape new_shape;
+	
+	if (inters.length == 0)
+	{
+		if (fusion__shape_is_a_inside_b(shape_a, shape_b))
+		{
+			/* Return an empty shape (3 vertices at the same place) */
+			new_shape.coo_array.coos = malloc(3 * (sizeof *new_shape.coo_array.coos)); /* TODO Arena*/
+			new_shape.coo_array.length = 3;
+			new_shape.positive = 1;
+			new_shape.coo_array.coos[0] = shape_a.coo_array.coos[0];
+			new_shape.coo_array.coos[1] = shape_a.coo_array.coos[0];
+			new_shape.coo_array.coos[2] = shape_a.coo_array.coos[0];
+
+			return new_shape;
+		}
+		else if (fusion__shape_is_a_inside_b(shape_b, shape_a))
+		{
+			// TODO do the trick
+		}
+		else
+		{
+			return shape_a;
+		}
+	}
+	
+	/*
+	// Two intersecting shapes
+	*/
+
+	new_shape_cap = shape_a.coo_array.length + shape_b.coo_array.length + inters.length;
+	new_shape.coo_array.coos = malloc(new_shape_cap * (sizeof *new_shape.coo_array.coos)); /* TODO Overallocate, shrink it down (Arena) once the length is known */
+	new_shape.coo_array.length = 0;
+	new_shape.positive = 1;
+	
+	for (i = 0; i < inters.length - 1; i++)
+	{
+		cur_inters = inters.segment[i];
+		
+		/* Add the new intersection vertex */
+		coos_a = shape_a.coo_array.coos[cur_inters.first];
+		coos_c = shape_a.coo_array.coos[cur_inters.first + 1];
+		coos_c.x = coos_c.x - coos_a.x; /* set A as the origin (0, 0) to simplify the expression */
+		coos_c.y = coos_c.y - coos_a.y;
+		if (cur_inters.second == shape_b.coo_array.length - 1)
+		{
+			coos_b = shape_b.coo_array.coos[0];
+		}
+		else
+		{
+			coos_b = shape_b.coo_array.coos[cur_inters.second + 1];
+		}
+		coos_b.x = coos_b.x - coos_a.x;
+		coos_b.y = coos_b.y - coos_a.y;
+		coos_d = shape_b.coo_array.coos[cur_inters.second];
+		coos_d.x = coos_d.x - coos_a.x;
+		coos_d.y = coos_d.y - coos_a.y;
+		alpha = (coos_d.x * coos_b.y - coos_b.x * coos_d.y) / (coos_c.y * (coos_d.x - coos_b.x) + coos_c.x * (coos_b.y - coos_d.y))
+		coos_e.x = coos_c.x * alpha + coos_a.x;
+		coos_e.y = coos_c.y * alpha + coos_a.x;
+
+		new_shape.coo_array.coos[new_shape.coo_array.length] = coos_e;
+		new_shape.coo_array.length = new_shape.coo_array.length + 1;
+
+		
+		/* Follow: i even -> shape_b : i odd -> shape_a */
+		if (i & 1) /* shape_a */
+		{
+			for (j = cur_inters.first + 1; j <= inters.segment[i+1].first; j++)
+			{
+				new_shape.coo_array.coos[new_shape.coo_array.length] = shape_a.coo_array.coos[j];
+				new_shape.coo_array.length = new_shape.coo_array.length + 1;
+			}
+		}
+		else /* shape_b */
+		{
+			for (j = cur_inters.second; j > inters.segment[i+1].second; j--)
+			{
+				new_shape.coo_array.coos[new_shape.coo_array.length] = shape_b.coo_array.coos[j];
+				new_shape.coo_array.length = new_shape.coo_array.length + 1;
+			}
+		}
+	}
+	
+	cur_inters = inters.segments[inters.length - 1];
+	/* Add the new intersection vertex */
+	coos_a = shape_a.coo_array.coos[cur_inters.first];
+	if (cur_inters.first == shape_a.coo_array.length - 1)
+	{
+		coos_c = shape_a.coo_array.coos[0];
+	}
+	else
+	{
+		coos_c = shape_a.coo_array.coos[cur_inters.first + 1];
+	}
+	coos_c.x = coos_c.x - coos_a.x; /* set A as the origin (0, 0) to simplify the expression */
+	coos_c.y = coos_c.y - coos_a.y;
+	if (cur_inters.second == shape_b.coo_array.length - 1)
+	{
+		coos_b = shape_b.coo_array.coos[0];
+	}
+	else
+	{
+		coos_b = shape_b.coo_array.coos[cur_inters.second + 1];
+	}
+	coos_b.x = coos_b.x - coos_a.x;
+	coos_b.y = coos_b.y - coos_a.y;
+	coos_d = shape_b.coo_array.coos[cur_inters.second];
+	coos_d.x = coos_d.x - coos_a.x;
+	coos_d.y = coos_d.y - coos_a.y;
+	alpha = (coos_d.x * coos_b.y - coos_b.x * coos_d.y) / (coos_c.y * (coos_d.x - coos_b.x) + coos_c.x * (coos_b.y - coos_d.y))
+	coos_e.x = coos_c.x * alpha + coos_a.x;
+	coos_e.y = coos_c.y * alpha + coos_a.x;
+
+	new_shape.coo_array.coos[new_shape.coo_array.length] = coos_e;
+	new_shape.coo_array.length = new_shape.coo_array.length + 1;
+	
+	/* Close the shape by finishing to go through shape_a */
+	for (i = cur_inters.first + 1; i < shape_a.coo_array.length; i++)
+	{
+		new_shape.coo_array.coos[new_shape.coo_array.length] = shape_a.coo_array.coos[i];
+		new_shape.coo_array.length = new_shape.coo_array.length + 1;
+	}
+
+	for (i = 0; i <= inters.segment[0].first; i++)
+	{
+		new_shape.coo_array.coos[new_shape.coo_array.length] = shape_a.coo_array.coos[i];
+		new_shape.coo_array.length = new_shape.coo_array.length + 1;
+	}
+
+	// TODO shrink new_shape.coo_array down arena_realloc
+
 	return new_shape;
 }
